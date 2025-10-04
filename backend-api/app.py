@@ -1,46 +1,19 @@
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Depends, Response
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from functools import lru_cache
+import aiofiles
 import os
-from ai_features.detect import analyze_space_image
+
+# Import database session manager and ORM models
 from database.db import get_db
 from database.models import Image, Annotation, User
 
-app = FastAPI(title="Space Image Analysis API")
+app = FastAPI()
 
-class AnalyzeRequest(BaseModel):
-    image_filename: str
-
-@app.post("/analyze-image")
-def analyze_image(request: AnalyzeRequest):
-    
-    image_path = os.path.join("images", request.image_filename)
-
-    if not os.path.isfile(image_path):
-        raise HTTPException(status_code=404, detail="Image file not found")
-
-    result = analyze_space_image(image_path)
-    if "error" in result:
-        raise HTTPException(status_code=500, detail=result["error"])
-
-    return {
-        "message": "Analysis complete",
-        "image": request.image_filename,
-        "features_found": result["count"],
-        "regions": result["regions"]
-    }
-
-@app.get("/tiles/{image_name}/{x}/{y}")
-def get_tile(image_name: str, x: int, y: int, tile_size: int = 256):
-    img_dir = os.path.splitext(image_name)[0]
-    tile_filename = f"{img_dir}_tile_{x}_{y}.jpg"
-    tile_path = os.path.join("tiles", img_dir, tile_filename)
-    if not os.path.isfile(tile_path):
-        raise HTTPException(status_code=404, detail="Tile not found")
-    return FileResponse(tile_path)
-
+# 1. Frontend access for local dev
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -49,10 +22,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 2. Server health/status endpoint
 @app.get("/")
 def read_root():
     return {"message": "Server is running!"}
 
+# 3. Asynchronous streaming for large images
+@app.get("/images/{image_name}")
+async def get_image(image_name: str):
+    file_path = os.path.join("images", image_name)
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="Image file not found")
+    async with aiofiles.open(file_path, 'rb') as f:
+        return StreamingResponse(f, media_type="image/jpeg")
+
+# 4. In-memory cache for fast/repeated tile access
+@lru_cache(maxsize=1024)
+def get_tile_from_disk(tile_path):
+    with open(tile_path, 'rb') as f:
+        return f.read()
+
+# 5. Serve 256x256 image tiles (for zoom, performance)
+@app.get("/tiles/{image_name}/{x}/{y}")
+def get_tile(image_name: str, x: int, y: int, tile_size: int = 256):
+    img_dir = os.path.splitext(image_name)[0]
+    tile_filename = f"{img_dir}_tile_{x}_{y}.jpg"
+    tile_path = os.path.join("tiles", img_dir, tile_filename)
+    if not os.path.isfile(tile_path):
+        raise HTTPException(status_code=404, detail="Tile not found")
+    tile_data = get_tile_from_disk(tile_path)
+    headers = {"Cache-Control": "public, max-age=86400"}
+    return Response(content=tile_data, media_type="image/jpeg", headers=headers)
+
+# 6. Return all images with metadata for gallery/search
 @app.get("/images")
 def list_images(db: Session = Depends(get_db)):
     images = db.query(Image).all()
@@ -66,16 +68,21 @@ def list_images(db: Session = Depends(get_db)):
         } for img in images
     ]}
 
-@app.get("/images/{image_name}")
-def get_image(image_name: str, db: Session = Depends(get_db)):
-    image = db.query(Image).filter(Image.filename == image_name).first()
-    if not image:
-        raise HTTPException(status_code=404, detail="Image not found in DB")
-    image_path = os.path.join("images", image_name)
-    if not os.path.isfile(image_path):
-        raise HTTPException(status_code=404, detail="Image file not found")
-    return FileResponse(image_path)
+# 7. Search endpoint for filtering images by query string
+@app.get("/search")
+def search_images(query: str, db: Session = Depends(get_db)):
+    results = db.query(Image).filter(
+        Image.title.ilike(f"%{query}%") | Image.description.ilike(f"%{query}%")
+    ).all()
+    return {"results": [
+        {
+            "filename": img.filename,
+            "title": img.title,
+            "description": img.description,
+        } for img in results
+    ]}
 
+# 8. Retrieve all annotations for a specific image (multi-user)
 @app.get("/annotations/{image_name}")
 def get_annotations(image_name: str, db: Session = Depends(get_db)):
     annotations = db.query(Annotation).filter(
@@ -86,6 +93,7 @@ def get_annotations(image_name: str, db: Session = Depends(get_db)):
         for a in annotations
     ]}
 
+# 9. Save a new annotation (handles concurrent users)
 class AnnotationIn(BaseModel):
     x: float
     y: float
@@ -113,6 +121,7 @@ def add_annotation(annotation: AnnotationIn, db: Session = Depends(get_db)):
         "annotation": {
             "x": new_annot.x,
             "y": new_annot.y,
-            "label": new_annot.label
+            "label": new_annot.label,
+            "user_id": new_annot.user_id
         }
     }
