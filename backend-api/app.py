@@ -4,16 +4,36 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import os
-
-# Import database session manager and ORM models
+from ai_features.detect import analyze_space_image
 from database.db import get_db
 from database.models import Image, Annotation, User
 
-app = FastAPI()
+app = FastAPI(title="Space Image Analysis API")
+
+class AnalyzeRequest(BaseModel):
+    image_filename: str
+
+@app.post("/analyze-image")
+def analyze_image(request: AnalyzeRequest):
+    
+    image_path = os.path.join("images", request.image_filename)
+
+    if not os.path.isfile(image_path):
+        raise HTTPException(status_code=404, detail="Image file not found")
+
+    result = analyze_space_image(image_path)
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+
+    return {
+        "message": "Analysis complete",
+        "image": request.image_filename,
+        "features_found": result["count"],
+        "regions": result["regions"]
+    }
 
 @app.get("/tiles/{image_name}/{x}/{y}")
 def get_tile(image_name: str, x: int, y: int, tile_size: int = 256):
-    # Construct expected path: tiles/{image_name}/{image_name}_tile_{x}_{y}.jpg
     img_dir = os.path.splitext(image_name)[0]
     tile_filename = f"{img_dir}_tile_{x}_{y}.jpg"
     tile_path = os.path.join("tiles", img_dir, tile_filename)
@@ -21,7 +41,6 @@ def get_tile(image_name: str, x: int, y: int, tile_size: int = 256):
         raise HTTPException(status_code=404, detail="Tile not found")
     return FileResponse(tile_path)
 
-# CORS setup: allow frontend during development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -30,12 +49,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Root endpoint for status check
 @app.get("/")
 def read_root():
     return {"message": "Server is running!"}
 
-# List all image metadata from DB
 @app.get("/images")
 def list_images(db: Session = Depends(get_db)):
     images = db.query(Image).all()
@@ -49,7 +66,6 @@ def list_images(db: Session = Depends(get_db)):
         } for img in images
     ]}
 
-# Serve a specific image file by filename
 @app.get("/images/{image_name}")
 def get_image(image_name: str, db: Session = Depends(get_db)):
     image = db.query(Image).filter(Image.filename == image_name).first()
@@ -60,7 +76,6 @@ def get_image(image_name: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Image file not found")
     return FileResponse(image_path)
 
-# Get all annotations for a specific image
 @app.get("/annotations/{image_name}")
 def get_annotations(image_name: str, db: Session = Depends(get_db)):
     annotations = db.query(Annotation).filter(
@@ -71,7 +86,6 @@ def get_annotations(image_name: str, db: Session = Depends(get_db)):
         for a in annotations
     ]}
 
-# Add a new annotation to an image
 class AnnotationIn(BaseModel):
     x: float
     y: float
