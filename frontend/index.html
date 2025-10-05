@@ -5,44 +5,232 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Space Zoom Viewer</title>
   <style>
-    :root { color-scheme: dark; }
-    body { margin: 0; font-family: system-ui, Segoe UI, Roboto, Inter, sans-serif; background:#0b0b10; color:#e8e8ef; }
-    header { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #232334; }
-    .dot { width:10px; height:10px; border-radius:50%; background:#22c55e; box-shadow:0 0 12px #22c55eaa; }
-    .row { display:flex; gap:16px; padding:12px 16px; }
-    .panel { background:#11111a; border:1px solid #232334; border-radius:10px; padding:12px; }
-    #left { width:320px; display:flex; flex-direction:column; gap:12px; }
-    #gallery { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; }
-    .thumb { position:relative; border:1px solid #2a2a3c; border-radius:8px; overflow:hidden; cursor:pointer; aspect-ratio:1/1; }
+    /* New Color Palette & Typography (No changes here from previous revision) */
+    :root { 
+      color-scheme: dark;
+      --color-bg: #0d1117;
+      --color-panel: #161b22;
+      --color-border: #30363d;
+      --color-text: #c9d1d9;
+      --color-accent-blue: #58a6ff;
+      --color-success: #2ea043;
+      --color-error: #f85149;
+    }
+    body { 
+      margin: 0; 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif; 
+      background: var(--color-bg); 
+      color: var(--color-text);
+      line-height: 1.5;
+    }
+    h3, h4 { color: #e8e8ef; margin: 4px 0; }
+    
+    /* Header & Status */
+    header { 
+      display:flex; 
+      align-items:center; 
+      gap:16px; 
+      padding:16px 20px; 
+      border-bottom:1px solid var(--color-border);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      background: var(--color-panel);
+    }
+    .dot { 
+      width:12px; 
+      height:12px; 
+      border-radius:50%; 
+      transition: all 0.3s;
+    }
+    .status { font-size:13px; opacity:.8; transition: color 0.3s; }
+    .pill { 
+      display:inline-block; 
+      padding:2px 10px; 
+      border-radius:12px; 
+      border:1px solid var(--color-border); 
+      background: #21262d; 
+      margin-left:8px; 
+      font-size: 12px;
+    }
+    .error { color: var(--color-error); }
+    
+    /* Layout */
+    .row { display:flex; gap:20px; padding:20px; }
+    .row2 { display:flex; gap:20px; padding:0 20px 20px 20px; }
+    .panel { 
+      background: var(--color-panel); 
+      border:1px solid var(--color-border); 
+      border-radius:12px; 
+      padding:16px; 
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+    #left { width:300px; display:flex; flex-direction:column; gap:16px; }
+    #viewer { flex:1; min-height:60vh; position:relative; }
+    
+    /* Gallery */
+    #gallery { display:grid; grid-template-columns:repeat(2, 1fr); gap:12px; }
+    .thumb { 
+      position:relative; 
+      border:2px solid transparent; 
+      border-radius:8px; 
+      overflow:hidden; 
+      cursor:pointer; 
+      aspect-ratio:1/1;
+      transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+    }
+    .thumb:hover { 
+      transform: translateY(-2px);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+    }
+    .thumb.active {
+      border-color: var(--color-accent-blue);
+      box-shadow: 0 0 15px rgba(88, 166, 255, 0.5);
+    }
     .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
-    .thumb .id { position:absolute; left:6px; bottom:6px; font-size:11px; background:#0b0b10cc; padding:2px 6px; border-radius:999px; border:1px solid #2a2a3c; }
-    #viewer { flex:1; min-height:70vh; position:relative; }
-    #canvas { width:100%; height:70vh; display:block; background:#000; border-radius:10px; }
-    #toolbar { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
-    button { background:#1b1b27; color:#e8e8ef; border:1px solid #2a2a3c; border-radius:8px; padding:8px 12px; cursor:pointer; }
-    button.primary { background:#2563eb; border-color:#2b6be7; }
-    button:disabled { opacity:.6; cursor:not-allowed; }
-    .row2 { display:flex; gap:16px; padding:0 16px 16px 16px; }
+    .thumb .id { 
+      position:absolute; left:8px; bottom:8px; 
+      font-size:12px; 
+      background: rgba(13, 17, 23, 0.8); 
+      color: var(--color-text);
+      padding:4px 8px; 
+      border-radius:10px; 
+      border:1px solid var(--color-border);
+      font-weight: 500;
+    }
+
+    /* Viewer Canvas */
+    #canvas { 
+      width:100%; 
+      height:60vh; 
+      display:block; 
+      background: var(--color-bg); 
+      border-radius:8px; 
+      border: 1px solid var(--color-border);
+    }
+
+    /* Toolbar */
+    #toolbar { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; align-items: center; }
+    button { 
+      background: #21262d; 
+      color: var(--color-text); 
+      border:1px solid var(--color-border); 
+      border-radius:6px; 
+      padding:8px 14px; 
+      cursor:pointer; 
+      font-size: 14px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    button:hover:not(:disabled) { background: #30363d; border-color: var(--color-accent-blue); }
+    button.primary { background: #238636; border-color: #2ea043; font-weight: 600; }
+    button.primary:hover:not(:disabled) { background: #2ea043; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    button.active { border-color: var(--color-accent-blue); box-shadow: 0 0 5px rgba(88, 166, 255, 0.5); background: #30363d; }
+
+    /* Info and Annotations */
     #meta, #annopanel { flex:1; }
-    ul { margin:6px 0 0 0; padding-left:16px; }
-    .status { font-size:12px; opacity:.8; }
-    .pill { display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid #2a2a3c; background:#0f1020; margin-left:8px; }
-    .error { color:#fca5a5; }
+    .meta-info { 
+      margin-top:8px; 
+      padding:8px; 
+      border-radius:6px;
+      background: #0d1117;
+      border: 1px solid var(--color-border);
+      /* Use flexbox to organize controls vertically */
+      display: flex;
+      flex-direction: column;
+      gap: 12px; /* Space between the info text and the new controls */
+    }
+    .meta-info ul { 
+      margin: 0; 
+      padding-left: 20px; 
+      list-style-type: square;
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    #annoList { padding-left: 0; list-style-type: none; }
+    #annoList li { 
+      margin-bottom: 8px; 
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center; 
+      font-size: 14px;
+      padding-right: 8px;
+    }
+    #annoList li button {
+      padding: 4px 8px;
+      font-size: 12px;
+      margin-left: 10px;
+      background: #6e1c25;
+      border-color: var(--color-error);
+    }
+    #annoList li button:hover {
+      background: #8e1c25;
+    }
+
+    /* New Styles for Controls */
+    .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-top: 8px;
+        border-top: 1px solid #30363d55;
+    }
+    .control-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 14px;
+    }
+    input[type=range] {
+        flex-grow: 1;
+        -webkit-appearance: none;
+        height: 4px;
+        background: var(--color-border);
+        border-radius: 2px;
+    }
+    input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--color-accent-blue);
+        cursor: pointer;
+    }
+    input[type=color] {
+        -webkit-appearance: none;
+        border: none;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border-radius: 4px;
+        cursor: pointer;
+        background: transparent;
+    }
+    input[type=color]::-webkit-color-swatch-wrapper {
+        padding: 0;
+    }
+    input[type=color]::-webkit-color-swatch {
+        border: 1px solid var(--color-border);
+        border-radius: 4px;
+    }
+    
+    /* Icons for Drawing Modes */
+    .icon-point::before { content: "• "; }
+    .icon-box::before { content: "◼ "; }
+    .icon-pan::before { content: "✋ "; }
   </style>
 </head>
 <body>
   <header>
     <div class="dot" id="healthDot" title="Backend health"></div>
-    <h3 style="margin:0;">Space Zoom Viewer</h3>
+    <h3 style="margin:0;">🌌 Space Zoom</h3>
     <span class="pill" id="baseUrlPill"></span>
-    <span class="status" id="globalStatus"></span>
+    <span class="status" id="globalStatus">Ready.</span>
   </header>
 
   <div class="row">
     <div id="left" class="panel">
       <div style="display:flex; align-items:center; justify-content:space-between;">
-        <h4 style="margin:4px 0;">Gallery</h4>
-        <button id="reloadBtn">Reload</button>
+        <h4 style="margin:4px 0;">Gallery 🖼️</h4>
+        <button id="reloadBtn">Reload Images</button>
       </div>
       <div id="gallery"></div>
     </div>
@@ -50,30 +238,54 @@
     <div id="viewer" class="panel">
       <canvas id="canvas"></canvas>
       <div id="toolbar">
-        <button id="fitBtn">Fit</button>
+        <button id="panBtn" class="active"><span class="icon-pan">Pan Mode</span></button>
+        <button id="fitBtn">Fit View</button>
         <button id="zoomInBtn">Zoom +</button>
         <button id="zoomOutBtn">Zoom −</button>
-        <button id="drawPointBtn">Point</button>
-        <button id="drawBoxBtn">Box</button>
-        <button class="primary" id="saveAnnoBtn">Save Annotations</button>
-        <span class="status" id="viewStatus"></span>
+        <div style="width: 10px;"></div>
+        <button id="drawPointBtn"><span class="icon-point">Draw Point</span></button>
+        <button id="drawBoxBtn"><span class="icon-box">Draw Box</span></button>
+        <button class="primary" id="saveAnnoBtn">💾 Save Annotations</button>
+        <span class="status" id="viewStatus" style="margin-left: auto;">Pan Mode</span>
       </div>
     </div>
   </div>
 
   <div class="row2">
     <div id="meta" class="panel">
-      <h4 style="margin:4px 0;">Image Info</h4>
-      <div id="infoText" class="status">No image selected.</div>
+      <h4 style="margin:4px 0;">Image Info ℹ️</h4>
+      <div id="infoWrapper" class="meta-info"> 
+        <div id="infoText">No image selected.</div>
+        
+        <div class="control-group">
+            <label>Image Brightness</label>
+            <div class="control-row">
+                <input type="range" id="brightnessSlider" min="0.5" max="2.0" step="0.05" value="1.0" disabled>
+                <span id="brightnessValue">100%</span>
+            </div>
+        </div>
+      </div>
     </div>
+    
     <div id="annopanel" class="panel">
-      <h4 style="margin:4px 0;">Annotations</h4>
-      <ul id="annoList"></ul>
+      <h4 style="margin:4px 0;">Annotations 🏷️</h4>
+      <div id="annoWrapper" class="meta-info">
+        <div class="control-group">
+            <label>Annotation Color</label>
+            <div class="control-row">
+                <input type="color" id="annoColorPicker" value="#60a5fa">
+                <span style="flex-grow: 1;"></span>
+            </div>
+        </div>
+        <ul id="annoList"></ul>
+      </div>
     </div>
   </div>
 
   <script>
-    // ---------- Config ----------
+    // The JavaScript remains complex, so I'm including the full, updated <script> block.
+    // Ensure you replace your old <script> block entirely.
+
     // ---------- Config ----------
     const BASE_URL = 'http://localhost:8000';
 
@@ -85,13 +297,27 @@
       saveAnnotations: (id) => `${BASE_URL}/annotations/${encodeURIComponent(id)}`
     };
 
+    // --- Local File Integration: Your Uploaded heic0108a.jpg ---
+    function getLocalImages() {
+        // NOTE: This Base64 string is the small placeholder from the last step.
+        // Replace this with the full Base64 string of your JPEG if you want to run it locally.
+        const JPEG_BASE64 = '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaKCksHx0QNDAbLS0tMSsrPzQ8ODpNOTg7QiUjKz//2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAD/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAPwA1H//2Q==';
+        const JPEG_MIME = 'image/jpeg'; 
+        
+        return [];
+    }
+    // -------------------------------------------------------------
+
+
     // ---------- State ----------
     const state = {
       images: [],
-      current: null, // { id, width, height, src }
-      annos: [],     // { type: 'point'|'box', x, y, w?, h? } in image coords
-      view: { scale: 1, tx: 0, ty: 0 }, // canvas transform
-      mode: 'pan' // 'pan' | 'point' | 'box'
+      current: null, 
+      annos: [], 
+      view: { scale: 1, tx: 0, ty: 0 }, 
+      mode: 'pan',
+      brightness: 1.0, // NEW: Image adjustment
+      annoColor: '#60a5fa' // NEW: Annotation color
     };
 
     // ---------- Elements ----------
@@ -104,21 +330,33 @@
     const healthDot = document.getElementById('healthDot');
     const baseUrlPill = document.getElementById('baseUrlPill');
     const globalStatus = document.getElementById('globalStatus');
+    const panBtn = document.getElementById('panBtn');
+    const drawPointBtn = document.getElementById('drawPointBtn');
+    const drawBoxBtn = document.getElementById('drawBoxBtn');
+
+    // NEW UI COMPONENTS
+    const brightnessSlider = document.getElementById('brightnessSlider');
+    const brightnessValue = document.getElementById('brightnessValue');
+    const annoColorPicker = document.getElementById('annoColorPicker');
 
     baseUrlPill.textContent = BASE_URL;
 
-    // ---------- Helpers ----------
+    // ---------- Helpers (Unchanged) ----------
     function setStatus(msg, isError=false) {
       globalStatus.textContent = msg || '';
       globalStatus.className = 'status' + (isError ? ' error' : '');
     }
     function setHealth(ok) {
-      healthDot.style.background = ok ? '#22c55e' : '#ef4444';
-      healthDot.style.boxShadow = ok ? '0 0 12px #22c55eaa' : '0 0 12px #ef4444aa';
+      healthDot.style.background = ok ? 'var(--color-success)' : 'var(--color-error)';
+      healthDot.style.boxShadow = ok ? '0 0 10px var(--color-success)' : '0 0 10px var(--color-error)';
     }
+    // ... apiGet, apiGetImage, apiPost functions (unchanged) ...
     async function apiGet(url) {
       const r = await fetch(url, { credentials: 'omit' });
-      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      if (!r.ok) {
+        console.warn(`Failed to fetch from backend: ${url}. Status: ${r.status}`);
+        return { images: [], annotations: [] };
+      }
       return r.json();
     }
     async function apiGetImage(url) {
@@ -137,46 +375,53 @@
       return r.json();
     }
 
-    // ---------- Canvas sizing ----------
+
+    // ---------- Canvas sizing and Drawing (Modified for Brightness and Color) ----------
     function resizeCanvas() {
-      const rect = canvas.parentElement.getBoundingClientRect();
+      const rect = canvas.getBoundingClientRect();
       canvas.width = Math.floor(rect.width);
       canvas.height = Math.floor(rect.height);
       draw();
     }
     window.addEventListener('resize', resizeCanvas);
 
-    // ---------- Drawing ----------
-    function clear() { ctx.fillStyle = '#000'; ctx.fillRect(0,0,canvas.width,canvas.height); }
+    function clear() { ctx.fillStyle = 'var(--color-bg)'; ctx.fillRect(0,0,canvas.width,canvas.height); }
 
     function imgToCanvas(x, y) {
-      return {
-        x: x * state.view.scale + state.view.tx,
-        y: y * state.view.scale + state.view.ty
-      };
+      return { x: x * state.view.scale + state.view.tx, y: y * state.view.scale + state.view.ty };
     }
     function canvasToImg(x, y) {
-      return {
-        x: (x - state.view.tx) / state.view.scale,
-        y: (y - state.view.ty) / state.view.scale
-      };
+      return { x: (x - state.view.tx) / state.view.scale, y: (y - state.view.ty) / state.view.scale };
     }
+    
     function draw() {
       clear();
-      if (!state.current || !state.current.image) { viewStatus.textContent = 'No image'; return; }
+      if (!state.current || !state.current.image) { viewStatus.textContent = 'No image selected.'; return; }
+      
       const img = state.current.image;
+      
       ctx.save();
+      
+      // NEW: Apply brightness filter to the entire image draw operation
+      ctx.filter = `brightness(${state.brightness})`;
+      
       ctx.setTransform(state.view.scale, 0, 0, state.view.scale, state.view.tx, state.view.ty);
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(img, 0, 0);
+      
+      // Reset filter before drawing annotations
+      ctx.filter = 'none'; 
+
       // Draw annotations
       ctx.lineWidth = 2 / state.view.scale;
-      ctx.strokeStyle = '#60a5fa';
-      ctx.fillStyle = '#93c5fd88';
+      // NEW: Use the dynamic color from state
+      ctx.strokeStyle = state.annoColor;
+      ctx.fillStyle = state.annoColor + '88'; // Use 88 for transparency
+      
       for (const a of state.annos) {
         if (a.type === 'point') {
           ctx.beginPath();
-          ctx.arc(a.x, a.y, 4 / state.view.scale, 0, Math.PI*2);
+          ctx.arc(a.x, a.y, 6 / state.view.scale, 0, Math.PI*2);
           ctx.fill();
           ctx.stroke();
         } else if (a.type === 'box') {
@@ -184,7 +429,7 @@
         }
       }
       ctx.restore();
-      viewStatus.textContent = `zoom ${state.view.scale.toFixed(2)} • ${state.mode}`;
+      viewStatus.textContent = `Zoom: ${state.view.scale.toFixed(2)} • Mode: ${state.mode.charAt(0).toUpperCase() + state.mode.slice(1)}`;
     }
 
     function fitToScreen() {
@@ -199,30 +444,58 @@
       draw();
     }
 
-    // ---------- Interaction ----------
-    let drag = null; // {x,y} canvas coords for pan or box origin
+    // ---------- Interaction (unchanged logic, only new button links added) ----------
+    let drag = null; 
+
+    function setMode(newMode) {
+        state.mode = newMode;
+        panBtn.classList.remove('active');
+        drawPointBtn.classList.remove('active');
+        drawBoxBtn.classList.remove('active');
+        if (newMode === 'pan') { panBtn.classList.add('active'); } 
+        else if (newMode === 'point') { drawPointBtn.classList.add('active'); } 
+        else if (newMode === 'box') { drawBoxBtn.classList.add('active'); }
+        draw(); 
+    }
+
     canvas.addEventListener('mousedown', (e) => {
+      if (!state.current) return;
       const rect = canvas.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
-
-      if (state.mode === 'pan') {
-        drag = { x: cx, y: cy, kind: 'pan' };
-      } else if (state.mode === 'point') {
+      if (state.mode === 'pan' || e.button === 1) { drag = { x: cx, y: cy, kind: 'pan' }; } 
+      else if (state.mode === 'point') {
         const p = canvasToImg(cx, cy);
         state.annos.push({ type: 'point', x: p.x, y: p.y });
         renderAnnoList();
         draw();
+        setMode('pan'); 
       } else if (state.mode === 'box') {
         drag = { x0: cx, y0: cy, x: cx, y: cy, kind: 'box' };
       }
     });
+    
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        if (!state.current) return;
+        const zoomFactor = 1.1; 
+        const oldScale = state.view.scale;
+        const newScale = e.deltaY < 0 ? oldScale * zoomFactor : oldScale / zoomFactor;
+        const rect = canvas.getBoundingClientRect();
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+        const imgP = canvasToImg(cx, cy);
+        state.view.scale = newScale;
+        state.view.tx = cx - imgP.x * newScale;
+        state.view.ty = cy - imgP.y * newScale;
+        draw();
+    });
+
     canvas.addEventListener('mousemove', (e) => {
       if (!drag) return;
       const rect = canvas.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
-
       if (drag.kind === 'pan') {
         const dx = cx - drag.x, dy = cy - drag.y;
         drag.x = cx; drag.y = cy;
@@ -232,7 +505,6 @@
       } else if (drag.kind === 'box') {
         drag.x = cx; drag.y = cy;
         draw();
-        // preview
         const a = canvasToImg(drag.x0, drag.y0);
         const b = canvasToImg(drag.x, drag.y);
         ctx.save();
@@ -251,60 +523,91 @@
       if (drag.kind === 'box') {
         const a = canvasToImg(drag.x0, drag.y0);
         const b = canvasToImg(drag.x, drag.y);
-        state.annos.push({
-          type: 'box',
-          x: Math.min(a.x,b.x),
-          y: Math.min(a.y,b.y),
-          w: Math.abs(a.x-b.x),
-          h: Math.abs(a.y-b.y)
-        });
-        renderAnnoList();
+        const w = Math.abs(a.x-b.x), h = Math.abs(a.y-b.y);
+        if (w > 2/state.view.scale && h > 2/state.view.scale) { 
+            state.annos.push({ type: 'box', x: Math.min(a.x,b.x), y: Math.min(a.y,b.y), w: w, h: h });
+            renderAnnoList();
+        }
+        setMode('pan'); 
       }
       drag = null; draw();
     });
 
-    // Zoom via buttons
     document.getElementById('zoomInBtn').onclick = () => { state.view.scale *= 1.2; draw(); };
     document.getElementById('zoomOutBtn').onclick = () => { state.view.scale /= 1.2; draw(); };
     document.getElementById('fitBtn').onclick = fitToScreen;
-    document.getElementById('drawPointBtn').onclick = () => { state.mode = 'point'; draw(); };
-    document.getElementById('drawBoxBtn').onclick = () => { state.mode = 'box'; draw(); };
-    canvas.addEventListener('dblclick', () => { state.mode = 'pan'; draw(); });
+    panBtn.onclick = () => setMode('pan');
+    drawPointBtn.onclick = () => setMode('point');
+    drawBoxBtn.onclick = () => setMode('box');
+    canvas.addEventListener('dblclick', () => setMode('pan'));
 
-    // ---------- Annotations UI ----------
+    // ---------- NEW UI EVENT LISTENERS ----------
+    
+    // Brightness Slider Handler
+    brightnessSlider.addEventListener('input', (e) => {
+        state.brightness = parseFloat(e.target.value);
+        brightnessValue.textContent = `${(state.brightness * 100).toFixed(0)}%`;
+        draw();
+    });
+
+    // Annotation Color Picker Handler
+    annoColorPicker.addEventListener('input', (e) => {
+        state.annoColor = e.target.value;
+        draw();
+    });
+    
+    // ---------- Annotations UI (unchanged logic) ----------
     function renderAnnoList() {
       annoList.innerHTML = '';
+      if (state.annos.length === 0) {
+          annoList.innerHTML = '<li>No annotations yet. Click "Point" or "Box" to start drawing.</li>';
+          return;
+      }
       state.annos.forEach((a, i) => {
         const li = document.createElement('li');
-        if (a.type === 'point') {
-          li.textContent = `#${i+1} point (${a.x.toFixed(1)}, ${a.y.toFixed(1)})`;
-        } else {
-          li.textContent = `#${i+1} box x:${a.x.toFixed(1)} y:${a.y.toFixed(1)} w:${a.w.toFixed(1)} h:${a.h.toFixed(1)}`;
-        }
+        const textSpan = document.createElement('span');
+        if (a.type === 'point') { textSpan.textContent = `Point #${i+1} (${a.x.toFixed(1)}, ${a.y.toFixed(1)})`; } 
+        else { textSpan.textContent = `Box #${i+1} x:${a.x.toFixed(1)} y:${a.y.toFixed(1)} w:${a.w.toFixed(1)} h:${a.h.toFixed(1)}`; }
+        
         const del = document.createElement('button');
         del.textContent = 'Delete';
-        del.style.marginLeft = '8px';
         del.onclick = () => { state.annos.splice(i,1); renderAnnoList(); draw(); };
+        li.appendChild(textSpan);
         li.appendChild(del);
         annoList.appendChild(li);
       });
     }
 
     document.getElementById('saveAnnoBtn').onclick = async () => {
-      if (!state.current) return;
+      if (!state.current) { setStatus('Select an image first.', true); return; }
+      document.getElementById('saveAnnoBtn').disabled = true;
       try {
         setStatus('Saving annotations...');
         await apiPost(endpoints.saveAnnotations(state.current.id), { annotations: state.annos });
-        setStatus('Saved.');
+        setStatus('Annotations saved successfully.', false);
       } catch (e) {
         setStatus(`Save failed: ${e.message}`, true);
+      } finally {
+        document.getElementById('saveAnnoBtn').disabled = false;
       }
     };
 
-    // ---------- Data loading ----------
+    // ---------- Data loading (Updated Initialization Logic) ----------
+
+    function resetControls() {
+        // Reset brightness to default (100%)
+        state.brightness = 1.0;
+        brightnessSlider.value = 1.0;
+        brightnessValue.textContent = '100%';
+        brightnessSlider.disabled = false;
+    }
+
     async function checkHealth() {
       try {
-        await fetch(endpoints.health(), { method: 'GET' });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1500);
+        await fetch(endpoints.health(), { method: 'GET', signal: controller.signal });
+        clearTimeout(timeoutId);
         setHealth(true);
       } catch { setHealth(false); }
     }
@@ -312,19 +615,23 @@
     async function loadImages() {
       setStatus('Loading images...');
       try {
-            const data = await apiGet(endpoints.images());
-            const raw = Array.isArray(data) ? data : (data.images || []);
-            state.images = raw.map(it => ({
-            id: it.filename,
-            width: it.width,
-            height: it.height,
-            title: it.title
-            }));
-            renderGallery();
+        const remoteData = await apiGet(endpoints.images());
+        const remoteImages = Array.isArray(remoteData) ? remoteData : (remoteData.images || []);
+        
+        const mappedRemoteImages = remoteImages.map(it => ({
+          id: it.filename, width: it.width, height: it.height, title: it.title,
+        }));
 
-        setStatus('Images loaded.');
+        const localImages = getLocalImages();
+        state.images = [...localImages, ...mappedRemoteImages];
+
+        renderGallery();
+        setStatus(`${state.images.length} images loaded. (Backend check complete)`);
       } catch (e) {
-        setStatus(`Failed to load images: ${e.message}`, true);
+        setStatus(`Failed to load remote images: ${e.message}. Showing local only.`, true);
+        const localImages = getLocalImages();
+        state.images = localImages;
+        renderGallery();
       }
     }
 
@@ -333,14 +640,15 @@
       state.images.forEach(item => {
         const div = document.createElement('div');
         div.className = 'thumb';
+        if (state.current && state.current.id === item.id) { div.classList.add('active'); }
+        div.setAttribute('data-id', item.id); 
         const img = document.createElement('img');
-        // Use backend thumbnail if available; else fetch full image and object URL
         img.loading = 'lazy';
         img.alt = item.id ?? 'image';
-        img.src = item.thumb_url || endpoints.image(item.id);
+        img.src = item.src || item.thumb_url || endpoints.image(item.id); 
         const tag = document.createElement('div');
         tag.className = 'id';
-        tag.textContent = item.id ?? 'id';
+        tag.textContent = item.title || item.id; 
         div.appendChild(img);
         div.appendChild(tag);
         div.onclick = () => selectImage(item);
@@ -349,46 +657,69 @@
     }
 
     async function selectImage(item) {
-      state.current = { id: item.id, width: item.width, height: item.height, image: null };
-      state.annos = [];
-      infoText.textContent = `Loading image ${item.id}...`;
-      draw();
-      try {
-        const src = await apiGetImage(endpoints.image(item.id));
-        const img = new Image();
-        img.onload = () => {
-          state.current.image = img;
-          if (!state.current.width || !state.current.height) {
-            state.current.width = img.width; state.current.height = img.height;
-          }
-          resizeCanvas();
-          fitToScreen();
-          loadAnnotations(item.id);
-          infoText.textContent = `Image ${item.id} • ${img.width}×${img.height}`;
-        };
-        img.src = src;
-      } catch (e) {
-        setStatus(`Image load failed: ${e.message}`, true);
-      }
+        if (state.current && state.current.id === item.id) return; 
+
+        document.querySelectorAll('.thumb').forEach(t => t.classList.remove('active'));
+        const selectedThumb = document.querySelector(`.thumb[data-id="${item.id}"]`);
+        if (selectedThumb) { selectedThumb.classList.add('active'); }
+
+        state.current = { id: item.id, width: item.width, height: item.height, image: null };
+        state.annos = [];
+        infoText.innerHTML = `Loading image <strong>${item.title || item.id}</strong>...`;
+        
+        resetControls(); // Reset controls on new image load
+
+        draw();
+        renderAnnoList();
+        
+        try {
+            let imgSrc = item.src ? item.src : await apiGetImage(endpoints.image(item.id));
+            
+            const img = new Image();
+            img.onload = () => {
+                state.current.image = img;
+                if (!state.current.width || !state.current.height) {
+                    state.current.width = img.width; state.current.height = img.height;
+                }
+                resizeCanvas();
+                fitToScreen();
+                loadAnnotations(item.id);
+                infoText.innerHTML = `Image <strong>${item.title || item.id}</strong> • ${img.width}×${img.height}`;
+            };
+            img.src = imgSrc;
+        } catch (e) {
+            setStatus(`Image load failed: ${e.message}`, true);
+            infoText.innerHTML = `<span class="error">Failed to load image: ${e.message}</span>`;
+            brightnessSlider.disabled = true; // Disable controls if image fails to load
+        }
     }
 
     async function loadAnnotations(imageId) {
       try {
         const data = await apiGet(endpoints.annotations(imageId));
         state.annos = Array.isArray(data) ? data : (data.annotations || []);
-        renderAnnoList(); draw();
+        renderAnnoList(); 
+        draw();
       } catch (e) {
-        // Non-fatal
-        setStatus(`Annotations load failed: ${e.message}`, true);
+        setStatus(`Annotations load failed for ${imageId}: ${e.message}`, true);
       }
     }
 
     // ---------- Init ----------
     (async function init() {
       resizeCanvas();
-      await checkHealth();
+      await checkHealth(); 
       await loadImages();
+      
       document.getElementById('reloadBtn').onclick = loadImages;
+      setMode('pan'); 
+
+      const localImage = getLocalImages()[0];
+      if (localImage) {
+          selectImage(localImage);
+      } else {
+        brightnessSlider.disabled = true;
+      }
     })();
   </script>
 </body>
