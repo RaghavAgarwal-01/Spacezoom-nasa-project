@@ -3,7 +3,7 @@ import os
 
 Image.MAX_IMAGE_PIXELS = None
 
-# Only change this variable to process a different image!
+# Only change this variable to process a different image! this wil generate small tiles of the large image.
 IMAGE_TO_TILE = 'backend-api/images/land_shallow_topo_east.tif'
 TILE_SIZE = 256
 

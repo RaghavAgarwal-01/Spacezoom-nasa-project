@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Space Zoom Viewer</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: system-ui, Segoe UI, Roboto, Inter, sans-serif; background:#0b0b10; color:#e8e8ef; }
+    header { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #232334; }
+    .dot { width:10px; height:10px; border-radius:50%; background:#22c55e; box-shadow:0 0 12px #22c55eaa; }
+    .row { display:flex; gap:16px; padding:12px 16px; }
+    .panel { background:#11111a; border:1px solid #232334; border-radius:10px; padding:12px; }
+    #left { width:320px; display:flex; flex-direction:column; gap:12px; }
+    #gallery { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; }
+    .thumb { position:relative; border:1px solid #2a2a3c; border-radius:8px; overflow:hidden; cursor:pointer; aspect-ratio:1/1; }
+    .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+    .thumb .id { position:absolute; left:6px; bottom:6px; font-size:11px; background:#0b0b10cc; padding:2px 6px; border-radius:999px; border:1px solid #2a2a3c; }
+    #viewer { flex:1; min-height:70vh; position:relative; }
+    #canvas { width:100%; height:70vh; display:block; background:#000; border-radius:10px; }
+    #toolbar { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+    button { background:#1b1b27; color:#e8e8ef; border:1px solid #2a2a3c; border-radius:8px; padding:8px 12px; cursor:pointer; }
+    button.primary { background:#2563eb; border-color:#2b6be7; }
+    button:disabled { opacity:.6; cursor:not-allowed; }
+    .row2 { display:flex; gap:16px; padding:0 16px 16px 16px; }
+    #meta, #annopanel { flex:1; }
+    ul { margin:6px 0 0 0; padding-left:16px; }
+    .status { font-size:12px; opacity:.8; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid #2a2a3c; background:#0f1020; margin-left:8px; }
+    .error { color:#fca5a5; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="dot" id="healthDot" title="Backend health"></div>
+    <h3 style="margin:0;">Space Zoom Viewer</h3>
+    <span class="pill" id="baseUrlPill"></span>
+    <span class="status" id="globalStatus"></span>
+  </header>
+
+  <div class="row">
+    <div id="left" class="panel">
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <h4 style="margin:4px 0;">Gallery</h4>
+        <button id="reloadBtn">Reload</button>
+      </div>
+      <div id="gallery"></div>
+    </div>
+
+    <div id="viewer" class="panel">
+      <canvas id="canvas"></canvas>
+      <div id="toolbar">
+        <button id="fitBtn">Fit</button>
+        <button id="zoomInBtn">Zoom +</button>
+        <button id="zoomOutBtn">Zoom −</button>
+        <button id="drawPointBtn">Point</button>
+        <button id="drawBoxBtn">Box</button>
+        <button class="primary" id="saveAnnoBtn">Save Annotations</button>
+        <span class="status" id="viewStatus"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row2">
+    <div id="meta" class="panel">
+      <h4 style="margin:4px 0;">Image Info</h4>
+      <div id="infoText" class="status">No image selected.</div>
+    </div>
+    <div id="annopanel" class="panel">
+      <h4 style="margin:4px 0;">Annotations</h4>
+      <ul id="annoList"></ul>
+    </div>
+  </div>
+
+  <script>
+    // ---------- Config ----------
+    // ---------- Config ----------
+    const BASE_URL = 'http://localhost:8000';
+
+    const endpoints = {
+      health: () => `${BASE_URL}/`,
+      images: () => `${BASE_URL}/images`,
+      image: (id) => `${BASE_URL}/images/${encodeURIComponent(id)}`,
+      annotations: (id) => `${BASE_URL}/annotations/${encodeURIComponent(id)}`,
+      saveAnnotations: (id) => `${BASE_URL}/annotations/${encodeURIComponent(id)}`
+    };
+
+    // ---------- State ----------
+    const state = {
+      images: [],
+      current: null, // { id, width, height, src }
+      annos: [],     // { type: 'point'|'box', x, y, w?, h? } in image coords
+      view: { scale: 1, tx: 0, ty: 0 }, // canvas transform
+      mode: 'pan' // 'pan' | 'point' | 'box'
+    };
+
+    // ---------- Elements ----------
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const galleryEl = document.getElementById('gallery');
+    const annoList = document.getElementById('annoList');
+    const infoText = document.getElementById('infoText');
+    const viewStatus = document.getElementById('viewStatus');
+    const healthDot = document.getElementById('healthDot');
+    const baseUrlPill = document.getElementById('baseUrlPill');
+    const globalStatus = document.getElementById('globalStatus');
+
+    baseUrlPill.textContent = BASE_URL;
+
+    // ---------- Helpers ----------
+    function setStatus(msg, isError=false) {
+      globalStatus.textContent = msg || '';
+      globalStatus.className = 'status' + (isError ? ' error' : '');
+    }
+    function setHealth(ok) {
+      healthDot.style.background = ok ? '#22c55e' : '#ef4444';
+      healthDot.style.boxShadow = ok ? '0 0 12px #22c55eaa' : '0 0 12px #ef4444aa';
+    }
+    async function apiGet(url) {
+      const r = await fetch(url, { credentials: 'omit' });
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return r.json();
+    }
+    async function apiGetImage(url) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      const blob = await r.blob();
+      return URL.createObjectURL(blob);
+    }
+    async function apiPost(url, data) {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return r.json();
+    }
+
+    // ---------- Canvas sizing ----------
+    function resizeCanvas() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = Math.floor(rect.width);
+      canvas.height = Math.floor(rect.height);
+      draw();
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    // ---------- Drawing ----------
+    function clear() { ctx.fillStyle = '#000'; ctx.fillRect(0,0,canvas.width,canvas.height); }
+
+    function imgToCanvas(x, y) {
+      return {
+        x: x * state.view.scale + state.view.tx,
+        y: y * state.view.scale + state.view.ty
+      };
+    }
+    function canvasToImg(x, y) {
+      return {
+        x: (x - state.view.tx) / state.view.scale,
+        y: (y - state.view.ty) / state.view.scale
+      };
+    }
+    function draw() {
+      clear();
+      if (!state.current || !state.current.image) { viewStatus.textContent = 'No image'; return; }
+      const img = state.current.image;
+      ctx.save();
+      ctx.setTransform(state.view.scale, 0, 0, state.view.scale, state.view.tx, state.view.ty);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0);
+      // Draw annotations
+      ctx.lineWidth = 2 / state.view.scale;
+      ctx.strokeStyle = '#60a5fa';
+      ctx.fillStyle = '#93c5fd88';
+      for (const a of state.annos) {
+        if (a.type === 'point') {
+          ctx.beginPath();
+          ctx.arc(a.x, a.y, 4 / state.view.scale, 0, Math.PI*2);
+          ctx.fill();
+          ctx.stroke();
+        } else if (a.type === 'box') {
+          ctx.strokeRect(a.x, a.y, a.w, a.h);
+        }
+      }
+      ctx.restore();
+      viewStatus.textContent = `zoom ${state.view.scale.toFixed(2)} • ${state.mode}`;
+    }
+
+    function fitToScreen() {
+      if (!state.current || !state.current.image) return;
+      const img = state.current.image;
+      const sx = canvas.width / img.width;
+      const sy = canvas.height / img.height;
+      const s = Math.min(sx, sy);
+      state.view.scale = s;
+      state.view.tx = (canvas.width - img.width * s) / 2;
+      state.view.ty = (canvas.height - img.height * s) / 2;
+      draw();
+    }
+
+    // ---------- Interaction ----------
+    let drag = null; // {x,y} canvas coords for pan or box origin
+    canvas.addEventListener('mousedown', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+
+      if (state.mode === 'pan') {
+        drag = { x: cx, y: cy, kind: 'pan' };
+      } else if (state.mode === 'point') {
+        const p = canvasToImg(cx, cy);
+        state.annos.push({ type: 'point', x: p.x, y: p.y });
+        renderAnnoList();
+        draw();
+      } else if (state.mode === 'box') {
+        drag = { x0: cx, y0: cy, x: cx, y: cy, kind: 'box' };
+      }
+    });
+    canvas.addEventListener('mousemove', (e) => {
+      if (!drag) return;
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+
+      if (drag.kind === 'pan') {
+        const dx = cx - drag.x, dy = cy - drag.y;
+        drag.x = cx; drag.y = cy;
+        state.view.tx += dx;
+        state.view.ty += dy;
+        draw();
+      } else if (drag.kind === 'box') {
+        drag.x = cx; drag.y = cy;
+        draw();
+        // preview
+        const a = canvasToImg(drag.x0, drag.y0);
+        const b = canvasToImg(drag.x, drag.y);
+        ctx.save();
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6,4]);
+        const x = Math.min(a.x,b.x), y = Math.min(a.y,b.y);
+        const w = Math.abs(a.x-b.x), h = Math.abs(a.y-b.y);
+        const tl = imgToCanvas(x,y);
+        ctx.strokeRect(tl.x, tl.y, w*state.view.scale, h*state.view.scale);
+        ctx.restore();
+      }
+    });
+    window.addEventListener('mouseup', (e) => {
+      if (!drag) return;
+      if (drag.kind === 'box') {
+        const a = canvasToImg(drag.x0, drag.y0);
+        const b = canvasToImg(drag.x, drag.y);
+        state.annos.push({
+          type: 'box',
+          x: Math.min(a.x,b.x),
+          y: Math.min(a.y,b.y),
+          w: Math.abs(a.x-b.x),
+          h: Math.abs(a.y-b.y)
+        });
+        renderAnnoList();
+      }
+      drag = null; draw();
+    });
+
+    // Zoom via buttons
+    document.getElementById('zoomInBtn').onclick = () => { state.view.scale *= 1.2; draw(); };
+    document.getElementById('zoomOutBtn').onclick = () => { state.view.scale /= 1.2; draw(); };
+    document.getElementById('fitBtn').onclick = fitToScreen;
+    document.getElementById('drawPointBtn').onclick = () => { state.mode = 'point'; draw(); };
+    document.getElementById('drawBoxBtn').onclick = () => { state.mode = 'box'; draw(); };
+    canvas.addEventListener('dblclick', () => { state.mode = 'pan'; draw(); });
+
+    // ---------- Annotations UI ----------
+    function renderAnnoList() {
+      annoList.innerHTML = '';
+      state.annos.forEach((a, i) => {
+        const li = document.createElement('li');
+        if (a.type === 'point') {
+          li.textContent = `#${i+1} point (${a.x.toFixed(1)}, ${a.y.toFixed(1)})`;
+        } else {
+          li.textContent = `#${i+1} box x:${a.x.toFixed(1)} y:${a.y.toFixed(1)} w:${a.w.toFixed(1)} h:${a.h.toFixed(1)}`;
+        }
+        const del = document.createElement('button');
+        del.textContent = 'Delete';
+        del.style.marginLeft = '8px';
+        del.onclick = () => { state.annos.splice(i,1); renderAnnoList(); draw(); };
+        li.appendChild(del);
+        annoList.appendChild(li);
+      });
+    }
+
+    document.getElementById('saveAnnoBtn').onclick = async () => {
+      if (!state.current) return;
+      try {
+        setStatus('Saving annotations...');
+        await apiPost(endpoints.saveAnnotations(state.current.id), { annotations: state.annos });
+        setStatus('Saved.');
+      } catch (e) {
+        setStatus(`Save failed: ${e.message}`, true);
+      }
+    };
+
+    // ---------- Data loading ----------
+    async function checkHealth() {
+      try {
+        await fetch(endpoints.health(), { method: 'GET' });
+        setHealth(true);
+      } catch { setHealth(false); }
+    }
+
+    async function loadImages() {
+      setStatus('Loading images...');
+      try {
+            const data = await apiGet(endpoints.images());
+            const raw = Array.isArray(data) ? data : (data.images || []);
+            state.images = raw.map(it => ({
+            id: it.filename,
+            width: it.width,
+            height: it.height,
+            title: it.title
+            }));
+            renderGallery();
+
+        setStatus('Images loaded.');
+      } catch (e) {
+        setStatus(`Failed to load images: ${e.message}`, true);
+      }
+    }
+
+    function renderGallery() {
+      galleryEl.innerHTML = '';
+      state.images.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'thumb';
+        const img = document.createElement('img');
+        // Use backend thumbnail if available; else fetch full image and object URL
+        img.loading = 'lazy';
+        img.alt = item.id ?? 'image';
+        img.src = item.thumb_url || endpoints.image(item.id);
+        const tag = document.createElement('div');
+        tag.className = 'id';
+        tag.textContent = item.id ?? 'id';
+        div.appendChild(img);
+        div.appendChild(tag);
+        div.onclick = () => selectImage(item);
+        galleryEl.appendChild(div);
+      });
+    }
+
+    async function selectImage(item) {
+      state.current = { id: item.id, width: item.width, height: item.height, image: null };
+      state.annos = [];
+      infoText.textContent = `Loading image ${item.id}...`;
+      draw();
+      try {
+        const src = await apiGetImage(endpoints.image(item.id));
+        const img = new Image();
+        img.onload = () => {
+          state.current.image = img;
+          if (!state.current.width || !state.current.height) {
+            state.current.width = img.width; state.current.height = img.height;
+          }
+          resizeCanvas();
+          fitToScreen();
+          loadAnnotations(item.id);
+          infoText.textContent = `Image ${item.id} • ${img.width}×${img.height}`;
+        };
+        img.src = src;
+      } catch (e) {
+        setStatus(`Image load failed: ${e.message}`, true);
+      }
+    }
+
+    async function loadAnnotations(imageId) {
+      try {
+        const data = await apiGet(endpoints.annotations(imageId));
+        state.annos = Array.isArray(data) ? data : (data.annotations || []);
+        renderAnnoList(); draw();
+      } catch (e) {
+        // Non-fatal
+        setStatus(`Annotations load failed: ${e.message}`, true);
+      }
+    }
+
+    // ---------- Init ----------
+    (async function init() {
+      resizeCanvas();
+      await checkHealth();
+      await loadImages();
+      document.getElementById('reloadBtn').onclick = loadImages;
+    })();
+  </script>
+</body>
+</html>
